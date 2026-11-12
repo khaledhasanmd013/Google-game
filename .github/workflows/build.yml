@@ -15,10 +15,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Android Debug Keystore
+      - name: Link Godot Templates & Setup Keystore
         run: |
-          mkdir -p /root/.android
-          keytool -genkey -v -keystore /root/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          mkdir -p /github/home/.local/share/godot
+          cp -r /root/.local/share/godot/export_templates /github/home/.local/share/godot/
+          mkdir -p /github/home/.android
+          keytool -genkey -v -keystore /github/home/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Import Project Assets
+        run: |
+          godot --headless --editor --quit
 
       - name: Export Android APK
         run: |
