@@ -10,40 +10,41 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: barichello/godot-ci:4.2.2
+      env:
+        HOME: /root
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Templates, Keystore & Configure Editor
+      - name: Setup Android Debug Keystore
         run: |
-          mkdir -p /github/home/.local/share/godot/export_templates/4.2.2.stable
-          cp -rn /root/.local/share/godot/export_templates/* /github/home/.local/share/godot/export_templates/ 2>/dev/null || true
-          cp -rn /root/.local/share/godot/templates/* /github/home/.local/share/godot/export_templates/ 2>/dev/null || true
-
-          if [ ! -f /github/home/.local/share/godot/export_templates/4.2.2.stable/android_debug.apk ]; then
+          mkdir -p /root/.android
+          rm -f /root/.android/debug.keystore
+          keytool -genkey -v -keystore /root/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          
+          mkdir -p /root/.local/share/godot/export_templates/4.2.2.stable
+          if [ ! -f /root/.local/share/godot/export_templates/4.2.2.stable/android_debug.apk ]; then
             curl -L -o templates.tpz https://github.com
             unzip -q templates.tpz -d temp_templates
-            mv temp_templates/templates/* /github/home/.local/share/godot/export_templates/4.2.2.stable/
+            mv temp_templates/templates/* /root/.local/share/godot/export_templates/4.2.2.stable/
             rm -rf templates.tpz temp_templates
           fi
 
-          mkdir -p /github/home/.android
-          keytool -genkey -v -keystore /github/home/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-
-          # প্রথমে Godot চালু করে ডিফল্ট সেটিংস ও প্রজেক্ট ইমপোর্ট সম্পন্ন করা
-          godot --headless --editor --quit || true
-
-          # এবার ডিফল্ট সেটিংস ফাইলের শেষে Java ও Android SDK পাথ যুক্ত করা (যাতে ওভাররাইট না হয়)
-          JAVA_PATH=$(dirname $(dirname $(readlink -f $(which java))))
-          SETTINGS_FILE="/github/home/.config/godot/editor_settings-4.tres"
-          mkdir -p /github/home/.config/godot
-          
-          if [ ! -f "$SETTINGS_FILE" ]; then
-            printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$SETTINGS_FILE"
-          fi
-
-          printf '\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\nexport/android/debug_keystore = "/github/home/.android/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_PATH" >> "$SETTINGS_FILE"
+          cat << 'EOF' > set_sdk.gd
+          @tool
+          extends EditorScript
+          func _run():
+              var settings = EditorInterface.get_editor_settings()
+              settings.set_setting("export/android/java_sdk_path", "/usr/lib/jvm/java-17-openjdk-amd64")
+              settings.set_setting("export/android/android_sdk_path", "/usr/lib/android-sdk")
+              settings.set_setting("export/android/debug_keystore", "/root/.android/debug.keystore")
+              settings.set_setting("export/android/debug_keystore_user", "androiddebugkey")
+              settings.set_setting("export/android/debug_keystore_pass", "android")
+              print("SDK PATHS SAVED SUCCESSFULLY!")
+          EOF
+          godot --headless --editor --script set_sdk.gd --quit
+          rm -f set_sdk.gd
 
       - name: Export Android APK
         run: |
@@ -56,4 +57,3 @@ jobs:
           name: Turbo-3D-Racing-APK
           path: build/Turbo3DRacing.apk
           retention-days: 30
-          
