@@ -1,9 +1,15 @@
+
 name: Build Turbo 3D Racing Android APK
 
 on:
   push:
-    branches: ["main", "master"]
+    branches:
+      - main
+      - master
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build-apk:
@@ -21,12 +27,26 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: "true"
+          log-accepted-android-sdk-licenses: "false"
+          packages: ""
 
-      - name: Install Android SDK Packages
+      - name: Install Required Android Packages
+        shell: bash
         run: |
-          yes | sdkmanager --licenses || true
+          set -euo pipefail
 
-          sdkmanager \
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          if [ -z "$SDK_ROOT" ]; then
+            echo "ERROR: Android SDK path not found"
+            exit 1
+          fi
+
+          echo "Android SDK: $SDK_ROOT"
+
+          sdkmanager --sdk_root="$SDK_ROOT" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2" \
@@ -34,8 +54,13 @@ jobs:
             "ndk;23.2.8568313" \
             "cmake;3.10.2.4988404"
 
+          test -f "$SDK_ROOT/platform-tools/adb"
+
       - name: Setup Godot 4.2.2
+        shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p "$HOME/godot"
 
           curl -fL \
@@ -48,28 +73,40 @@ jobs:
 
           echo "$HOME/godot" >> "$GITHUB_PATH"
 
+          "$HOME/godot/Godot_v4.2.2-stable_linux.x86_64" --version
+
       - name: Install Godot Android Export Templates
+        shell: bash
         run: |
-          mkdir -p "$HOME/.local/share/godot/export_templates/4.2.2.stable"
+          set -euo pipefail
+
+          TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/4.2.2.stable"
+
+          mkdir -p "$TEMPLATE_DIR"
 
           curl -fL \
             "https://github.com/godotengine/godot/releases/download/4.2.2-stable/Godot_v4.2.2-stable_export_templates.tpz" \
             -o templates.tpz
 
+          mkdir -p templates
           unzip -oq templates.tpz -d templates
 
-          cp -a templates/templates/. \
-            "$HOME/.local/share/godot/export_templates/4.2.2.stable/"
+          cp -a templates/templates/. "$TEMPLATE_DIR/"
 
-          test -f "$HOME/.local/share/godot/export_templates/4.2.2.stable/android_debug.apk"
+          test -f "$TEMPLATE_DIR/android_debug.apk"
+          test -f "$TEMPLATE_DIR/android_release.apk"
 
-      - name: Setup Android Environment
+          echo "Godot Android templates installed successfully"
+
+      - name: Setup Android Debug Keystore
+        shell: bash
         run: |
-          mkdir -p "$HOME/.config/godot"
-          mkdir -p "$HOME/.android"
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP"
 
           keytool -genkeypair \
-            -keystore "$HOME/.android/debug.keystore" \
+            -keystore "$RUNNER_TEMP/debug.keystore" \
             -storepass android \
             -alias androiddebugkey \
             -keypass android \
@@ -78,30 +115,41 @@ jobs:
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
 
-          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
-          [gd_resource type="EditorSettings" format=3]
+          test -f "$RUNNER_TEMP/debug.keystore"
 
-          [resource]
-          export/android/android_sdk_path = "$ANDROID_HOME"
-          export/android/java_sdk_path = "$JAVA_HOME"
-          EOF
+      - name: Verify Build Environment
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "JAVA_HOME=$JAVA_HOME"
+          echo "Java:"
+          java -version
+
+          echo "Android SDK:"
+          echo "$ANDROID_HOME"
+
+          echo "Godot:"
+          godot --version
 
           test -f "$ANDROID_HOME/platform-tools/adb"
           test -f "$JAVA_HOME/bin/java"
 
       - name: Import Godot Project
+        shell: bash
         run: |
+          set -euo pipefail
+
           godot --headless --editor --path . --quit
 
       - name: Export Android APK
+        shell: bash
         env:
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /home/runner/.android/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/debug.keystore
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
           GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
+          set -euo pipefail
+
           mkdir -p build
 
           godot --headless --verbose \
@@ -109,11 +157,18 @@ jobs:
             --export-debug "Android" \
             build/Turbo3DRacing.apk
 
-          test -s build/Turbo3DRacing.apk
+          if [ ! -s build/Turbo3DRacing.apk ]; then
+            echo "ERROR: APK was not created"
+            exit 1
+          fi
+
+          echo "APK export completed successfully"
+          ls -lh build/Turbo3DRacing.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Turbo-3D-Racing-APK
           path: build/Turbo3DRacing.apk
+          if-no-files-found: error
           retention-days: 30
