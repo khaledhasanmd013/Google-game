@@ -15,29 +15,25 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Templates, Keystore & Editor Settings
+      - name: Setup Android Templates, Keystore & Settings
         run: |
-          mkdir -p /github/home/.local/share/godot
-          cp -r /root/.local/share/godot/export_templates /github/home/.local/share/godot/
-          
+          mkdir -p /github/home/.local/share/godot/export_templates/4.2.2.stable
+          cp -rn /root/.local/share/godot/export_templates/* /github/home/.local/share/godot/export_templates/ 2>/dev/null || true
+          cp -rn /root/.local/share/godot/templates/* /github/home/.local/share/godot/export_templates/ 2>/dev/null || true
+
+          if [ ! -f /github/home/.local/share/godot/export_templates/4.2.2.stable/android_debug.apk ]; then
+            curl -L -o templates.tpz https://github.com
+            unzip -q templates.tpz -d temp_templates
+            mv temp_templates/templates/* /github/home/.local/share/godot/export_templates/4.2.2.stable/
+            rm -rf templates.tpz temp_templates
+          fi
+
           mkdir -p /github/home/.android
           keytool -genkey -v -keystore /github/home/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
           JAVA_PATH=$(dirname $(dirname $(readlink -f $(which java))))
           mkdir -p /github/home/.config/godot
-          cat <<EOF > /github/home/.config/godot/editor_settings-4.tres
-          [gd_resource type="EditorSettings" format=3]
-          [resource]
-          export/android/java_sdk_path = "$JAVA_PATH"
-          export/android/android_sdk_path = "/usr/lib/android-sdk"
-          export/android/debug_keystore = "/github/home/.android/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          EOF
-
-      - name: Import Project Assets
-        run: |
-          godot --headless --editor --quit
+          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\nexport/android/debug_keystore = "/github/home/.android/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_PATH" > /github/home/.config/godot/editor_settings-4.tres
 
       - name: Export Android APK
         run: |
