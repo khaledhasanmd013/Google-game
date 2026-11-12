@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Android Templates, Keystore & Settings
+      - name: Setup Templates, Keystore & Configure Editor
         run: |
           mkdir -p /github/home/.local/share/godot/export_templates/4.2.2.stable
           cp -rn /root/.local/share/godot/export_templates/* /github/home/.local/share/godot/export_templates/ 2>/dev/null || true
@@ -31,9 +31,19 @@ jobs:
           mkdir -p /github/home/.android
           keytool -genkey -v -keystore /github/home/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
+          # প্রথমে Godot চালু করে ডিফল্ট সেটিংস ও প্রজেক্ট ইমপোর্ট সম্পন্ন করা
+          godot --headless --editor --quit || true
+
+          # এবার ডিফল্ট সেটিংস ফাইলের শেষে Java ও Android SDK পাথ যুক্ত করা (যাতে ওভাররাইট না হয়)
           JAVA_PATH=$(dirname $(dirname $(readlink -f $(which java))))
+          SETTINGS_FILE="/github/home/.config/godot/editor_settings-4.tres"
           mkdir -p /github/home/.config/godot
-          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\nexport/android/debug_keystore = "/github/home/.android/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_PATH" > /github/home/.config/godot/editor_settings-4.tres
+          
+          if [ ! -f "$SETTINGS_FILE" ]; then
+            printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$SETTINGS_FILE"
+          fi
+
+          printf '\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\nexport/android/debug_keystore = "/github/home/.android/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_PATH" >> "$SETTINGS_FILE"
 
       - name: Export Android APK
         run: |
